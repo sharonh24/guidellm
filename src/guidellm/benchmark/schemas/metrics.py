@@ -11,7 +11,7 @@ performance metrics for request processing and queueing behavior.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import Field
 
@@ -41,7 +41,7 @@ __all__ = [
 ]
 
 
-TimedMetricTypeAlias = (
+TimedMetricTypeAlias: TypeAlias = (
     tuple[float, float, int | float | None, int | float | None] | None
 )
 """Timed metric tuple containing start_time, end_time, input_value, and output_value."""
@@ -655,7 +655,16 @@ class GenerativeAudioMetricsSummary(StandardBaseDict):
     bytes: GenerativeMetricsSummary | None = Field(
         description="Byte size metrics and distributions"
     )
-
+    rtf: GenerativeMetricsSummary | None = Field(
+        default=None, description="Client-request audio RTF distribution"
+    )
+    underrun_seconds: GenerativeMetricsSummary | None = Field(
+        default=None, description="Worst streaming playback deficit distribution"
+    )
+    continuity_ok_rate: GenerativeMetricsSummary | None = Field(
+        default=None, description="Streaming continuity indicator distribution"
+    )
+    
     @classmethod
     def compile(
         cls,
@@ -692,6 +701,24 @@ class GenerativeAudioMetricsSummary(StandardBaseDict):
             ),
             bytes=GenerativeMetricsSummary.compile(
                 property_name="audio_bytes",
+                successful=successful,
+                incomplete=incomplete,
+                errored=errored,
+            ),
+            rtf=GenerativeMetricsSummary.compile(
+                property_name="audio_rtf",
+                successful=successful,
+                incomplete=incomplete,
+                errored=errored,
+            ),
+            underrun_seconds=GenerativeMetricsSummary.compile(
+                property_name="audio_underrun_seconds",
+                successful=successful,
+                incomplete=incomplete,
+                errored=errored,
+            ),
+            continuity_ok_rate=GenerativeMetricsSummary.compile(
+                property_name="audio_continuity_ok",
                 successful=successful,
                 incomplete=incomplete,
                 errored=errored,
