@@ -50,6 +50,7 @@ from .trace_common import (
 )
 from .trace_minimal import MinimalTraceFormat
 from .trace_mooncake import MooncakeTraceFormat
+from .trace_otel import OTELTraceFormat
 from .trace_weka import WEKATraceFormat
 
 __all__ = [
@@ -68,6 +69,7 @@ __all__ = [
     "JSONFileDatasetDeserializer",
     "MinimalTraceFormat",
     "MooncakeTraceFormat",
+    "OTELTraceFormat",
     "ParquetFileDatasetDeserializer",
     "SyntheticImageDataset",
     "SyntheticImageDatasetDeserializer",

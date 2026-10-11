@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sized
 from typing import Any
 
 from guidellm.data.preprocessors.preprocessor import (
@@ -25,6 +26,12 @@ def _is_encoded_video(item: Any) -> bool:
     return isinstance(item, dict) and "video" in item and "type" in item
 
 
+def _is_empty_media(item: Any) -> bool:
+    if isinstance(item, Sized):
+        return len(item) == 0
+    return not item
+
+
 @PreprocessorRegistry.register("encode_media")
 class MediaEncoder(DatasetPreprocessor):
     def __init__(
@@ -39,7 +46,7 @@ class MediaEncoder(DatasetPreprocessor):
     def _encode_images(self, images: list[Any]) -> list[Any]:
         encoded_images = []
         for image in images:
-            if not image:
+            if _is_empty_media(image):
                 continue
             if _is_encoded_image(image):
                 encoded_images.append(image)
@@ -53,7 +60,7 @@ class MediaEncoder(DatasetPreprocessor):
     def _encode_videos(self, videos: list[Any]) -> list[Any]:
         encoded_videos = []
         for video in videos:
-            if not video:
+            if _is_empty_media(video):
                 continue
             if _is_encoded_video(video):
                 encoded_videos.append(video)
@@ -67,7 +74,7 @@ class MediaEncoder(DatasetPreprocessor):
     def _encode_audio(self, audio_items: list[Any]) -> list[Any]:
         encoded_audio = []
         for audio in audio_items:
-            if not audio:
+            if _is_empty_media(audio):
                 continue
             if _is_encoded_audio(audio):
                 encoded_audio.append(audio)

@@ -172,6 +172,7 @@ Each per-request entry in `benchmarks.json` includes:
 
 - `info.history_len`: the number of prior messages in the assembled history sent to the server with that request. Because history can include messages from diverging paths that merge via `last` edges, `history_len` may jump at merge points rather than increment by one. Branch roots spawned with fresh (`new`) context start at `0`.
 - `info.turn_index`: a simpler path-depth counter. It resets to `0` on `new` edges, increments by one through `full` edges, and treats each `last` edge as adding up to `1` without walking further into that parent’s ancestors. When a node has multiple parents, `turn_index` is the maximum over those contributions (the longest path).
+- `info.preceding_nodes`: the number of graph nodes that precede this request in topological execution order (0-based). Unlike `turn_index` and `history_len`, this is independent of `history_context`. Use it when replay uses `history_context=new` (for example OTEL `history=trace`) and `turn_index` stays at `0` for every request. Recorded tool loops add extra graph nodes (call + injection), so `preceding_nodes` counts DAG nodes, not raw LLM spans. Parallel sub-agent siblings may receive different values based on topological tie-breaking.
 
 At a merge after a sub-agent branch, `history_len` often exceeds `turn_index` because merged `last` outputs are counted in assembled history but only add up to a non-recursive `1` toward path depth (and do not increase `turn_index` when the `full` path is already longer).
 
@@ -332,8 +333,8 @@ with **TurnPivot** the second turn will be:
 To use TurnPivot in the CLI, specify it as a data preprocessor:
 
 ```bash
---data kind=huggingface,source=dataset0.jsonl \
---data kind=huggingface,source=dataset1.jsonl \
+--data kind=json_file,path=dataset0.jsonl \
+--data kind=json_file,path=dataset1.jsonl \
 --data-preprocessor kind=encode_media \
 --data-preprocessor kind=turn_pivot
 ```
@@ -448,7 +449,7 @@ guidellm run \
   --backend kind=openai_http,target=http://localhost:8000,model=meta-llama/Llama-3.1-8B-Instruct,request_format=/v1/chat/completions \
   --profile kind=concurrent,streams=10 \
   --constraint kind=max_requests,count=200 \
-  --data kind=huggingface,source=multiturn_conversations.jsonl
+  --data kind=json_file,path=multiturn_conversations.jsonl
 ```
 
 **Key Parameters:**
@@ -494,7 +495,7 @@ Reasoning models emit chain-of-thought tokens before their final answer. By defa
 ### Think Tags (most models)
 
 ```bash
---backend kind=openai_http'target=http://localhost:8000,multiturn_reasoning=true'
+--backend kind=openai_http,target=http://localhost:8000,multiturn_reasoning=true
 ```
 
 Results in the following being sent for the turn in the conversation history:

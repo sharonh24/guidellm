@@ -10,10 +10,9 @@ singleton operations for consistent state management across concurrent workflows
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from abc import ABC
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncIterator
 from typing import Generic
 
 from guidellm.benchmark.profiles import Profile
@@ -35,6 +34,10 @@ from guidellm.scheduler import (
     SchedulingStrategy,
 )
 from guidellm.schemas.benchmark import GoodputSLO, TransientPhaseConfig
+from guidellm.schemas.benchmark.warnings import (
+    WarningRuleArgs,
+    default_warning_rules,
+)
 from guidellm.utils.mixins import InfoMixin
 from guidellm.utils.singleton import ThreadSafeSingletonMixin
 
@@ -55,7 +58,7 @@ class Benchmarker(
     scheduling strategies and execution environments.
     """
 
-    async def run(
+    async def run(  # noqa: C901
         self,
         accumulator_class: type[BenchmarkAccumulatorT],
         benchmark_class: type[BenchmarkT],
@@ -68,9 +71,11 @@ class Benchmarker(
         sample_size: int | None = None,
         prefer_response_metrics: bool = True,
         progress: (
-            list[BenchmarkerProgress[BenchmarkAccumulatorT, BenchmarkT]] | None
+            BenchmarkerProgress[BenchmarkAccumulatorT, BenchmarkT] | None
         ) = None,
         slo: GoodputSLO | None = None,
+        confidence: float | None = 0.95,
+        warnings: list[WarningRuleArgs] | None = None,
     ) -> AsyncIterator[BenchmarkT]:
         """
         Execute benchmark runs across scheduling strategies in the profile.
@@ -88,17 +93,18 @@ class Benchmarker(
             None keeps all, 0 strips all, N > 0 uses reservoir sampling.
         :param prefer_response_metrics: Whether to prefer response metrics over
             request metrics, defaults to True
-        :param progress: Independent trackers notified concurrently for lifecycle events
+        :param progress: Optional tracker for benchmark lifecycle events
         :param slo: Per-request latency objectives defining which requests count
             toward goodput, or None to disable goodput measurement
+        :param confidence: Two-sided confidence level for the intervals reported
+            alongside request-level metrics, or None to omit them
+        :param warnings: Post-benchmark warning checks. None uses the defaults.
         :yield: Compiled benchmark result for each strategy execution
         :raises Exception: If benchmark execution or compilation fails
         """
-        trackers = list(progress or [])
         with self.thread_lock:
-            await _notify_progress(
-                *(tracker.on_initialize(profile) for tracker in trackers)
-            )
+            if progress:
+                await progress.on_initialize(profile)
 
             run_id = str(uuid.uuid4())
             strategies_generator = profile.strategies_generator()
@@ -108,9 +114,8 @@ class Benchmarker(
 
             while strategy is not None:
                 logger.info("Starting benchmark for strategy: {}", strategy)
-                await _notify_progress(
-                    *(tracker.on_benchmark_start(strategy) for tracker in trackers)
-                )
+                if progress:
+                    await progress.on_benchmark_start(strategy)
 
                 config = BenchmarkConfig(
                     run_id=run_id,
@@ -131,6 +136,10 @@ class Benchmarker(
                     cooldown=cooldown,
                     prefer_response_metrics=prefer_response_metrics,
                     slo=slo,
+                    confidence=confidence,
+                    warnings=(
+                        default_warning_rules() if warnings is None else warnings
+                    ),
                     profile=InfoMixin.extract_from_obj(profile),
                     requests=InfoMixin.extract_from_obj(requests),
                     backend=InfoMixin.extract_from_obj(backend),
@@ -159,27 +168,25 @@ class Benchmarker(
                             request_info,
                             scheduler_state,
                         )
-                        await _notify_progress(
-                            *(
-                                tracker.on_benchmark_update(
-                                    accumulator, scheduler_state
-                                )
-                                for tracker in trackers
+                        if progress:
+                            await progress.on_benchmark_update(
+                                accumulator, scheduler_state
                             )
-                        )
                     except Exception as err:  # noqa: BLE001
                         logger.error(
                             "Error updating benchmark estimate/progress: {}", err
                         )
+
+                if progress:
+                    await progress.on_benchmark_compile()
 
                 benchmark = benchmark_class.compile(
                     accumulator=accumulator,
                     scheduler_state=scheduler_state,  # type: ignore[arg-type]
                 )
 
-                await _notify_progress(
-                    *(tracker.on_benchmark_complete(benchmark) for tracker in trackers)
-                )
+                if progress:
+                    await progress.on_benchmark_complete(benchmark)
 
                 yield benchmark
 
@@ -190,12 +197,5 @@ class Benchmarker(
                     constraints = None
 
             logger.info("All benchmarks finalized")
-            await _notify_progress(*(tracker.on_finalize() for tracker in trackers))
-
-
-async def _notify_progress(*callbacks: Awaitable[None]) -> None:
-    """Finish every callback before propagating the first lifecycle failure."""
-    results = await asyncio.gather(*callbacks, return_exceptions=True)
-    for result in results:
-        if isinstance(result, BaseException):
-            raise result
+            if progress:
+                await progress.on_finalize()

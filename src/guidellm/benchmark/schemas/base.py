@@ -31,6 +31,10 @@ from guidellm.schemas import (
 )
 from guidellm.schemas.benchmark.goodput import GoodputSLO
 from guidellm.schemas.benchmark.transient import TransientPhaseConfig
+from guidellm.schemas.benchmark.warnings import (
+    WarningRuleArgs,
+    default_warning_rules,
+)
 
 __all__ = [
     "Benchmark",
@@ -101,6 +105,19 @@ class BenchmarkConfig(StandardBaseDict):
             "Per-request latency objectives defining which requests count "
             "toward goodput. None disables goodput measurement"
         ),
+    )
+    confidence: float | None = Field(
+        default=0.95,
+        gt=0.0,
+        lt=1.0,
+        description=(
+            "Two-sided confidence level for the intervals reported alongside "
+            "request-level metrics. None reports those metrics without intervals"
+        ),
+    )
+    warnings: list[WarningRuleArgs] = Field(
+        default_factory=default_warning_rules,
+        description="Post-benchmark warning checks and their thresholds",
     )
     profile: dict[str, Any] = Field(
         description="Profile instance coordinating multi-strategy execution",

@@ -21,7 +21,7 @@ After [starting a server](server.md), you're ready to run benchmarks to evaluate
 
 ## CLI option format
 
-The GuideLLM CLI provides options using a common registry-backed format. The registered implementation is selected with `kind=<type>` and parametrs are configured with key=value pairs:
+The GuideLLM CLI provides options using a common registry-backed format. The registered implementation is selected with `kind=<type>` and parameters are configured with key=value pairs:
 
 ```bash
 guidellm run --<option> kind=<TYPE>,key=value,...
@@ -85,15 +85,15 @@ The random seed is used for any operation in GuideLLM that involves randomness, 
 
 Constraints control when each strategy in a profile stops. Add one or more `--constraint` options. Constraints apply individually to each strategy in a profile. Profiles with multiple strategies include `sweep` and any profile whose primary parameter is a list (for example, `{"streams":[10,20]}` on `concurrent`).
 
-| Constraint type         | Config parameter         | Example                                                         |
-| ----------------------- | ------------------------ | --------------------------------------------------------------- |
-| `max_duration`          | `max_duration` (seconds) | `--constraint kind=max_duration,seconds=30`                     |
-| `max_requests`          | `max_num`                | `--constraint kind=max_requests,count=1000`                     |
-| `min_requests`          | `count`                  | `--constraint kind=min_requests,count=1000`                     |
-| `max_errors`            | `max_errors`             | `--constraint kind=max_errors,count=10`                         |
-| `max_error_rate`        | `max_error_rate`         | `--constraint kind=max_error_rate,rate=0.05`                    |
-| `max_global_error_rate` | `max_global_error_rate`  | `--constraint kind=max_global_error_rate,rate=0.05`             |
-| `over_saturation`       | detection parameters     | `--constraint kind=over_saturation,min_seconds=30,mode=enforce` |
+| Constraint type         | Config parameters    | Example                                                          |
+| ----------------------- | -------------------- | ---------------------------------------------------------------- |
+| `max_duration`          | `seconds`            | `--constraint kind=max_duration,seconds=30`                      |
+| `max_requests`          | `count`              | `--constraint kind=max_requests,count=1000`                      |
+| `min_requests`          | `count`              | `--constraint kind=min_requests,count=1000`                      |
+| `max_errors`            | `count`              | `--constraint kind=max_errors,count=10`                          |
+| `max_error_rate`        | `rate`, `window`     | `--constraint kind=max_error_rate,rate=0.05,window=10`           |
+| `max_global_error_rate` | `rate`, `minimum`    | `--constraint kind=max_global_error_rate,rate=0.05,minimum=1000` |
+| `over_saturation`       | detection parameters | `--constraint kind=over_saturation,min_seconds=30,mode=enforce`  |
 
 For example, `--constraint kind=max_requests,count=1000` with `--profile kind=sweep` runs up to 1000 requests for each strategy in the sweep (synchronous, throughput, and each interpolated rate). `--constraint kind=min_requests,count=1000` is like `max_requests`, but keeps queuing until 1000 requests have been processed, which avoids throughput tail-off at the end of rate-based benchmarks. `--constraint kind=max_duration,seconds=30` with `--profile '{"kind":"concurrent","streams":[10,20]}'` runs 10 concurrent streams for 30 seconds, then 20 concurrent streams for 30 seconds.
 
@@ -147,6 +147,19 @@ guidellm run --profile kind=concurrent,streams=10
 | `max_concurrency` | Maximum concurrent requests to schedule       | `--profile kind=concurrent,streams=10,max_concurrency=10`                                       |
 
 You can use the `--override` option to specify a list of stream values, to run a set of concurrent "strategies" (sub-benchmarks) with different stream values. For example, `--profile kind=concurrent --override profile.streams 10,20,30` will run a concurrent strategy with 10 streams, a concurrent strategy with 20 streams, and a concurrent strategy with 30 streams.
+
+#### Knee Profile
+
+Measures an initial set of concurrency points and estimates where output throughput stops increasing substantially. Set `adaptive=true` to run one additional set of points around that estimate. Adaptive refinement is disabled by default.
+
+```bash
+guidellm run \
+  --profile '{"kind":"knee","initial_streams":[1,5,10,20,40,80,160],"adaptive":true,"points_each_side":5,"max_step":3}'
+```
+
+The profile uses concurrent strategies for both phases and stores its initial analysis, adaptive plan, and final analysis in the report's `conclusions` list. See the [Knee Profile Guide](../guides/knee_detection.md) for configuration and calculation details.
+
+For evenly spaced starting points, use `--profile '{"kind":"knee","min_streams":1,"max_streams":9,"count":5}'`. Use `initial_streams` when you need to choose every concurrency point yourself.
 
 #### Constant Profile
 
@@ -214,11 +227,14 @@ Replays trace events using timestamps from a trace file dataset. See [Trace Repl
 guidellm run --profile kind=replay,time_scale=1.0
 ```
 
-| Profile parameter | Description                                   | Example                                |
-| ----------------- | --------------------------------------------- | -------------------------------------- |
-| `time_scale`      | Time scale for intervals between trace events | `--profile kind=replay,time_scale=2.0` |
+| Profile parameter | Description                                                                                                            | Example                                         |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `time_scale`      | Time scale for intervals between trace events                                                                          | `--profile kind=replay,time_scale=2.0`          |
+| `schedule_turn`   | `idle_gap` (default) keeps the idle gap after each recorded request duration. `timestamp` targets each trace timestamp | `--profile kind=replay,schedule_turn=timestamp` |
 
 Wait caps and a data-side `time_scale` are set on `--data`. The profile `time_scale` is applied by the scheduler after those dataset timestamps are built, allowing multiple runs with different time scales.
+
+`schedule_turn=idle_gap` (the default) keeps the gap that followed the recorded duration: if a request was recorded as 1 second and the next timestamp is 5 seconds later, the next request starts 4 seconds after this one actually finishes. A late or slow request shifts everything after it. When the trace has no duration column, the loader logs one warning and each request is treated as instantaneous, so that same example starts the next request 5 seconds after this one finishes. Set the column name with `duration_column` on `--data` (default `duration`). `schedule_turn=timestamp` runs each request at its trace time and holds it only while a prior turn is still in progress.
 
 ## Data Options
 
@@ -261,6 +277,10 @@ guidellm run \
 ```
 
 The data parameter `time_scale` acts as a scaling factor for the intervals between trace events after wait and pack caps: `1.0` preserves the original timing, `2.0` doubles the intervals and runs twice as long, and `0.5` halves the intervals and runs twice as fast. Wait caps (`max_wait`, `max_session_wait`, `min_concurrent_sessions`) are applied in original trace seconds before `time_scale`.
+
+Raise parallelism with `min_concurrent_sessions`. Use `copies` when the packed dataset is not large enough to sustain that load for the whole benchmark. By default (`copy_offset=1`) `copies` replays the full packed trace sequentially: the next pass starts at the previous pass's last scheduled request. `copy_offset` can overlay or gap copies relative to that prior span. Synthetic data traces re-salt the synthetic data to ensure cache-unique conversations for the copies.
+
+Strategically choose between increasing parallelism and affecting request timings for your use case. Higher parallelism increases concurrent simultaneous requests, and increases the chance of cache evictions affecting your benchmark.
 
 `--constraint kind=max_duration,seconds=<n>` stops in-flight waits as well as new request starts. Workers sleeping until a future replay timestamp are cancelled when the duration elapses.
 

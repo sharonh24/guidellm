@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from guidellm.schemas.data.deserializers.file import FileDataArgs
+from guidellm.schemas.data.deserializers.file import DBFileDataArgs, FileDataArgs
 from guidellm.schemas.data.deserializers.huggingface import HuggingFaceDataArgs
 from guidellm.schemas.data.deserializers.memory import (
     InMemoryDictDataArgs,
@@ -25,12 +25,14 @@ from guidellm.schemas.data.deserializers.synthetic_audio import SyntheticAudioDa
 from guidellm.schemas.data.deserializers.trace_common import TraceDataArgs
 from guidellm.schemas.data.deserializers.trace_minimal import MinimalTraceFormatArgs
 from guidellm.schemas.data.deserializers.trace_mooncake import MooncakeTraceFormatArgs
+from guidellm.schemas.data.deserializers.trace_otel import OTELTraceFormatArgs
 from guidellm.schemas.data.deserializers.trace_weka import WEKATraceFormatArgs
 
 __all__ = [
     "DEFAULT_SYNTHETIC_TOOLS",
     "RESOLUTION_PRESETS",
     "BranchSpec",
+    "DBFileDataArgs",
     "FileDataArgs",
     "HuggingFaceDataArgs",
     "InMemoryDictDataArgs",
@@ -38,6 +40,7 @@ __all__ = [
     "InMemoryItemListDataArgs",
     "MinimalTraceFormatArgs",
     "MooncakeTraceFormatArgs",
+    "OTELTraceFormatArgs",
     "SyntheticImageDataArgs",
     "SyntheticAudioDataArgs",
     "SyntheticTextDataArgs",
